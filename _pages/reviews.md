@@ -4,7 +4,7 @@ permalink: /reviews/
 title: reviews
 description: public peer reviews.
 group: reviews
-nav: true
+nav: false
 nav_order: 4
 ---
 
