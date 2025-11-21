@@ -18,6 +18,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # ensure full checkout so Bundler can check out git-sourced gems
+          fetch-depth: 0
 
       - name: Setup Ruby
         uses: ruby/setup-ruby@v1
@@ -32,15 +35,34 @@ jobs:
           node-version: '18'
 
       - name: Install system build deps
-        run: sudo apt-get update && sudo apt-get install -y build-essential libxml2-dev libxslt1-dev pkg-config
+        run: sudo apt-get update && sudo apt-get install -y build-essential libxml2-dev libxslt1-dev pkg-config git
 
       - name: Install Bundler (ensure exact version)
-        run: gem install bundler -v 2.6.9
+        run: gem install bundler -v 2.6.9 || true
 
       - name: Install Ruby dependencies
         run: |
-          bundle config set --local path vendor/bundle
+          # Install gems into vendor/bundle so they are available to bundle exec
+          bundle config set --local path 'vendor/bundle'
           bundle install --jobs 4 --retry 3 --verbose
+
+      - name: Debug: verify jekyll-terser and installed gems
+        run: |
+          echo "ruby and bundler versions:"
+          ruby -v
+          bundle -v
+          echo "Show Gemfile.lock head:"
+          head -n 40 Gemfile.lock || true
+          echo
+          echo "List vendor/bundle contents (if present):"
+          ls -la vendor/bundle || true
+          echo
+          echo "Bundle info for jekyll-terser (if installed):"
+          bundle info jekyll-terser || bundle show jekyll-terser || true
+          echo
+          echo "List bundler gems and gemspec dirs to help debug:"
+          bundle list || true
+          ls -la vendor/bundle/ruby || true
 
       - name: Build with Jekyll
         env:
