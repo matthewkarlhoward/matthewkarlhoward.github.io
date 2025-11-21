@@ -18,6 +18,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Ruby
         uses: ruby/setup-ruby@v1
@@ -34,13 +36,11 @@ jobs:
       - name: Install system build deps
         run: sudo apt-get update && sudo apt-get install -y build-essential libxml2-dev libxslt1-dev pkg-config
 
-      - name: Install Bundler (ensure exact version)
-        run: gem install bundler -v 2.6.9
-
-      - name: Install Ruby dependencies
+      - name: Install bundler and gems
         run: |
-          bundle config set --local path vendor/bundle
-          bundle install --jobs 4 --retry 3 --verbose
+          gem install bundler -v 2.6.9 || true
+          bundle config set path vendor/bundle
+          bundle install --jobs 4 --retry 3
 
       - name: Build with Jekyll
         env:
