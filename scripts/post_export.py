@@ -2,11 +2,12 @@
 """Re-apply local customisations to the exported shinylive app.
 
 ``shinylive export`` regenerates everything under ``mor-dms/``, which drops
-three things we want to keep:
+four things we want to keep:
 
   1. the Google Analytics tag in ``index.html``
   2. a meaningful ``<title>`` (the export writes "Shiny App")
-  3. the filled-in citation on the app's Cite page, for as long as the
+  3. the loading overlay, which covers the ~1 minute webR cold start
+  4. the filled-in citation on the app's Cite page, for as long as the
      source ``app.R`` still carries the ``{Authors}``/``{Title}`` placeholders
 
 Run it straight after every export::
@@ -40,6 +41,102 @@ GA_SNIPPET = f"""
       gtag('js', new Date());
 
       gtag('config', '{GA_ID}');
+    </script>
+"""
+
+BOOT_STYLE = """    <style>
+      #boot-message {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+        padding: 24px;
+        text-align: center;
+        background: #ffffff;
+        color: #2f4f47;
+        font-family: system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+        transition: opacity 0.4s ease;
+      }
+      #boot-message .boot-title { font-size: 1.1rem; font-weight: 600; }
+      #boot-message .boot-detail {
+        font-size: 0.9rem;
+        line-height: 1.5;
+        max-width: 30rem;
+        color: #5a6b66;
+      }
+      #boot-message .boot-spinner {
+        width: 34px;
+        height: 34px;
+        border: 3px solid #d7e8e2;
+        border-top-color: #4aa98e;
+        border-radius: 50%;
+        animation: boot-spin 0.9s linear infinite;
+      }
+      @keyframes boot-spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) {
+        #boot-message .boot-spinner { animation: none; }
+      }
+    </style>
+"""
+
+BOOT_OVERLAY = """
+    <div id="boot-message">
+      <div class="boot-spinner"></div>
+      <div class="boot-title">Starting the μOR-DMS data browser</div>
+      <div class="boot-detail" id="boot-detail">
+        This app runs R entirely in your browser, so the first load takes
+        up to a minute. Nothing is sent to a server.
+      </div>
+    </div>
+    <script>
+      (function () {
+        var overlay = document.getElementById("boot-message");
+        var root = document.getElementById("root");
+        if (!overlay || !root) return;
+
+        var dismissed = false;
+        function dismiss() {
+          if (dismissed) return;
+          dismissed = true;
+          clearTimeout(slowTimer);
+          overlay.style.opacity = "0";
+          setTimeout(function () { overlay.remove(); }, 400);
+        }
+
+        // The app mounts an iframe into #root; wait for it to finish loading.
+        function watch(frame) {
+          if (frame.contentDocument &&
+              frame.contentDocument.readyState === "complete") dismiss();
+          else frame.addEventListener("load", dismiss);
+        }
+
+        var existing = root.querySelector("iframe");
+        if (existing) {
+          watch(existing);
+        } else {
+          var observer = new MutationObserver(function () {
+            var frame = root.querySelector("iframe");
+            if (!frame) return;
+            observer.disconnect();
+            watch(frame);
+          });
+          observer.observe(root, { childList: true, subtree: true });
+        }
+
+        // Reassure anyone on a slow connection rather than leaving them guessing.
+        var slowTimer = setTimeout(function () {
+          var detail = document.getElementById("boot-detail");
+          if (detail && !dismissed) {
+            detail.textContent =
+              "Still loading — the R runtime is a large download the first " +
+              "time. It is cached afterwards, so later visits start quickly.";
+          }
+        }, 45000);
+      })();
     </script>
 """
 
@@ -102,6 +199,18 @@ def patch_index():
     else:
         html = html[: title.start(1)] + TITLE + html[title.end(1) :]
         notes.append(f"title set (was {title.group(1)!r})")
+
+    if "boot-message" in html:
+        notes.append("loading overlay already present")
+    else:
+        css = re.search(r'[ \t]*<link rel="stylesheet" href="[^"]*shinylive\.css" />\n', html)
+        if not css or not re.search(r'[ \t]*<div[^>]*id="root"></div>\n', html):
+            print("  FAIL  no stylesheet link or #root div to anchor the overlay to")
+            return False
+        html = html[: css.end()] + BOOT_STYLE + html[css.end() :]
+        root = re.search(r'[ \t]*<div[^>]*id="root"></div>\n', html)
+        html = html[: root.end()] + BOOT_OVERLAY + html[root.end() :]
+        notes.append("loading overlay added")
 
     if html != before:
         INDEX.write_text(html, encoding="utf-8")
